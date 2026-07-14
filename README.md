@@ -530,6 +530,10 @@ The Palworld dedicated server process got OOM-killed — it needs at least 8GB R
 
 `DISABLE_GENERATE_SETTINGS` got set to `true` in `.env` before the server ever booted successfully, so the official image never got a chance to generate real settings (including enabling the REST API). This shouldn't happen if you used `scripts/deploy-full.sh`, but if you set it manually: set `DISABLE_GENERATE_SETTINGS=false` in `.env`, delete the empty `.ini` files under `./data/Pal/Saved/Config/LinuxServer/`, and re-run `./scripts/deploy-full.sh` to let it generate a real config and re-lock it once healthy.
 
+### Using docker-compose.full.yml: saving in Settings fails with "EACCES: permission denied, open '/config/PalWorldSettings.ini.bak'"
+
+The `palworld` service creates `./data/Pal/Saved/Config/LinuxServer/` as whatever uid its image runs as (1000 by default for `thijsvanloef/palworld-server-docker`), but the dashboard container defaults to a different uid, so it can't write into that folder. Check the actual owner with `ls -la ./data/Pal/Saved/Config/LinuxServer` and set `PALWORLD_UID`/`PALWORLD_GID` in `.env` to match (run `id -u`/`id -g` as that owner, or just its uid/gid number), then `docker compose -f docker-compose.full.yml up -d --force-recreate dashboard`.
+
 ### The page loads, but development hot reload is not working
 
 Restart the dev server with:

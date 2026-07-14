@@ -63,6 +63,11 @@ services:
       - 3000:3000
     volumes:
       - ./data/Pal/Saved/Config/LinuxServer:/config:rw   # 跟 palworld 服務共用同一個 ./data,掛進 ini 檔所在資料夾
+    # 蓋掉 Dockerfile 裡預設的 uid 1001(nextjs),改用跟 palworld 產生 ini 檔時同一個 uid,
+    # 不然 dashboard 對這個 volume 只有讀權限,寫入/備份 ini 會 EACCES。
+    # thijsvanloef image 預設用 uid 1000,大部分 Linux 主機的第一個使用者也剛好是 1000,
+    # 如果你的 ./data 資料夾擁有者不是 1000,改 .env 裡的 PALWORLD_UID/PALWORLD_GID。
+    user: "${PALWORLD_UID:-1000}:${PALWORLD_GID:-1000}"
     environment:
       PALWORLD_INI_PATH: /config/PalWorldSettings.ini
       SETTINGS_EDITOR_PASSWORD: "${SETTINGS_EDITOR_PASSWORD}"   # 唯一保護寫檔案這個動作的關卡
