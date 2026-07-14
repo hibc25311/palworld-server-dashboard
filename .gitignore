@@ -31,3 +31,7 @@ pnpm-debug.log*
 # Test output
 coverage/
 .nyc_output/
+
+# Local tooling / docker-compose.full.yml runtime data
+.claude/
+data/

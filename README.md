@@ -128,6 +128,17 @@ The map view shows:
 - zoom and pan controls
 - grouped player markers when players are close together
 
+### Server Settings Editor 🛠️
+
+The Settings tab reads and writes the game's `PalWorldSettings.ini` directly (rates like EXP, capture, drop, work speed, and death penalty). Saving triggers a server restart so the new values take effect.
+
+This requires the dashboard container to have read/write access to the file, so it's only available when running [docker-compose.full.yml](./docker-compose.full.yml) (or an equivalent setup where `PALWORLD_INI_PATH` points at a mounted `PalWorldSettings.ini`). It doesn't work with the plain [docker-compose.yml](./docker-compose.yml) setup, since that one doesn't mount a config volume.
+
+Configuration:
+
+- `PALWORLD_INI_PATH` - path to `PalWorldSettings.ini` inside the container (defaults to `/config/PalWorldSettings.ini`)
+- `SETTINGS_EDITOR_PASSWORD` - optional second password required to save changes, separate from the dashboard's own connection password. Since this app has no built-in login, this is the only thing gating who can rewrite your server config if the dashboard is reachable on the network — set it.
+
 ### Visual Customization
 
 The dashboard includes multiple built-in visual themes, so server admins can choose the look they prefer without changing the code.
@@ -236,6 +247,43 @@ Optional overrides:
 
 - `PALWORLD_SERVER_DASHBOARD_IMAGE` to point at a different tag or registry
 - `PALWORLD_SERVER_DASHBOARD_PORT` to change the host port
+
+### Run Server and Dashboard Together
+
+If you don't have a Palworld server yet, or want to manage server settings directly from the dashboard, use [docker-compose.full.yml](./docker-compose.full.yml) instead. It runs a Palworld dedicated server ([thijsvanloef/palworld-server-docker](https://github.com/thijsvanloef/palworld-server-docker)) alongside a dashboard built from this repo's source, and wires them together so the dashboard can read and write the server's `PalWorldSettings.ini` directly (see [Server Settings Editor](#server-settings-editor-)).
+
+**Requirements:** the Palworld dedicated server needs at least 8GB RAM available to the container. On Linux hosts (including most cloud VMs) Docker uses the host's RAM directly, so just make sure the machine itself has enough. On macOS/Windows, Docker runs containers inside a VM (Docker Desktop, or `colima` if you're not using Docker Desktop) — that VM's own memory allocation needs to be raised to 8GB+, since it defaults much lower. If the server gets killed shortly after "Game version is..." in the logs, this is almost always why.
+
+```bash
+cp .env.example .env
+# edit .env with real passwords
+./scripts/deploy-full.sh
+```
+
+The first startup takes a while: the Palworld image downloads the dedicated server binary, and the dashboard is built from source. `deploy-full.sh` waits for the server to become healthy, then locks in `PalWorldSettings.ini` so the dashboard's Settings page can write to it without those changes getting overwritten on future restarts. Run it again any time (e.g. after a restart) — it's safe to re-run.
+
+<details>
+<summary>What the script does, if you want to run it by hand or it fails partway</summary>
+
+Bringing the stack up actually requires two steps, in order, because the official Palworld image and the dashboard's ini-editing feature want mutually exclusive things: the image needs to generate `PalWorldSettings.ini` itself on first boot (using the environment variables in `docker-compose.full.yml`, including enabling the REST API), but once that's done, it must stop touching the file so the dashboard's writes stick.
+
+```bash
+# 1. first boot: DISABLE_GENERATE_SETTINGS must be false (the default in
+#    .env.example) so the image generates a real PalWorldSettings.ini
+docker compose -f docker-compose.full.yml up -d --build
+
+# wait for it to become healthy
+docker compose -f docker-compose.full.yml ps
+
+# 2. once confirmed healthy: set DISABLE_GENERATE_SETTINGS=true in .env,
+#    then recreate just the palworld service so the ini file becomes the
+#    source of truth from now on
+docker compose -f docker-compose.full.yml up -d --force-recreate palworld
+```
+
+Doing step 2 too early (before the server has booted once) means the image never gets a chance to write real settings, leaving `PalWorldSettings.ini` empty and the REST API disabled — see [Troubleshooting](#troubleshooting-).
+
+</details>
 
 ## First Connection Walkthrough 🧭
 
@@ -422,12 +470,17 @@ public/       static assets such as icons and map images
 Some especially useful files:
 
 - `app/api/palworld/[...path]/route.ts` - proxy route to the Palworld REST API
+- `app/api/settings-file/route.ts` - reads and writes `PalWorldSettings.ini`
+- `app/settings/page.tsx` - Settings editor UI
 - `lib/server-context.tsx` - app-wide server/session state
 - `lib/palworld.ts` - Palworld API helpers and payload normalization
+- `lib/palworld-ini.ts` - `PalWorldSettings.ini` parsing and serialization
 - `components/dashboard.tsx` - main dashboard shell
 - `components/live-map.tsx` - live map view
 - `Dockerfile` - production container build
-- `docker-compose.yml` - ready-to-run container deployment using the published image
+- `docker-compose.yml` - dashboard-only deployment using the published image
+- `docker-compose.full.yml` - Palworld server + dashboard together, built from source
+- `scripts/deploy-full.sh` - one-command bring-up for docker-compose.full.yml
 - `.github/workflows/publish-docker-image.yml` - container build and publish automation
 
 ## UI Library and Styling 🎨
@@ -459,6 +512,14 @@ Check:
 ### The gameplay server works, but the dashboard cannot connect
 
 That usually means the game port is reachable but the REST API is not. Double-check the REST API port and its authentication settings.
+
+### Using docker-compose.full.yml: dashboard says "Cannot reach the REST API", server logs end with "Killed"
+
+The Palworld dedicated server process got OOM-killed — it needs at least 8GB RAM available to the container. See the requirements note in [Run Server and Dashboard Together](#run-server-and-dashboard-together-). On macOS/Windows, raise the memory allocated to Docker's VM (Docker Desktop settings, or `colima start --memory 8` if using colima), then re-run `./scripts/deploy-full.sh`.
+
+### Using docker-compose.full.yml: dashboard says "Cannot reach the REST API", server is healthy, `PalWorldSettings.ini` is basically empty (1 byte)
+
+`DISABLE_GENERATE_SETTINGS` got set to `true` in `.env` before the server ever booted successfully, so the official image never got a chance to generate real settings (including enabling the REST API). This shouldn't happen if you used `scripts/deploy-full.sh`, but if you set it manually: set `DISABLE_GENERATE_SETTINGS=false` in `.env`, delete the empty `.ini` files under `./data/Pal/Saved/Config/LinuxServer/`, and re-run `./scripts/deploy-full.sh` to let it generate a real config and re-lock it once healthy.
 
 ### The page loads, but development hot reload is not working
 

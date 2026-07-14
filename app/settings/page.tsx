@@ -1,0 +1,257 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import { toast } from 'sonner'
+import { useServer } from '@/lib/server-context'
+import type { EditableField } from '@/lib/palworld-ini'
+
+type FieldWithValue = EditableField & { value: string | null }
+
+/**
+ * 這個頁面刻意用最基本的 HTML input/select + Tailwind class 寫,
+ * 沒有直接套用專案裡 components/ui/* 的 Radix 元件,
+ * 是因為那些元件的實際 props 介面沒有一併確認過,貿然套用容易寫出編譯不過的程式碼。
+ * 你可以照現有的視覺風格,把下面的 <input>/<select>/<button> 換成
+ * components/ui 底下對應的元件,功能邏輯(useState / handleSave)不用動。
+ */
+export default function SettingsPage() {
+    const { config, isConfigured, apiCall } = useServer()
+
+    const [fields, setFields] = useState<FieldWithValue[]>([])
+    const [draft, setDraft] = useState<Record<string, string>>({})
+    const [settingsPassword, setSettingsPassword] = useState('')
+    const [isLoadingFields, setIsLoadingFields] = useState(false)
+    const [isSaving, setIsSaving] = useState(false)
+    const [loadError, setLoadError] = useState<string | null>(null)
+
+    const loadFields = async () => {
+        setIsLoadingFields(true)
+        setLoadError(null)
+
+        try {
+            const response = await fetch('/api/settings-file', {
+                cache: 'no-store',
+            })
+            const data = await response.json()
+
+            if (!response.ok) {
+                throw new Error(data.error || '讀取設定失敗')
+            }
+
+            const loadedFields = data.fields as FieldWithValue[]
+            setFields(loadedFields)
+
+            const nextDraft: Record<string, string> = {}
+            for (const field of loadedFields) {
+                if (field.value !== null) {
+                    nextDraft[field.key] = field.value
+                }
+            }
+            setDraft(nextDraft)
+        } catch (error) {
+            setLoadError(
+                error instanceof Error ? error.message : '讀取設定失敗',
+            )
+        } finally {
+            setIsLoadingFields(false)
+        }
+    }
+
+    useEffect(() => {
+        void loadFields()
+    }, [])
+
+    const handleFieldChange = (key: string, rawValue: string) => {
+        setDraft((prev) => ({ ...prev, [key]: rawValue }))
+    }
+
+    const handleSave = async () => {
+        setIsSaving(true)
+
+        try {
+            // 只送出跟載入時不一樣的欄位,避免整批覆蓋
+            const updates: Record<string, string> = {}
+            for (const field of fields) {
+                const currentValue = draft[field.key]
+                if (
+                    currentValue !== undefined &&
+                    currentValue !== field.value
+                ) {
+                    updates[field.key] =
+                        field.type === 'float'
+                            ? formatFloatInput(currentValue)
+                            : currentValue
+                }
+            }
+
+            if (Object.keys(updates).length === 0) {
+                toast.info('沒有變更,不需要儲存')
+                return
+            }
+
+            const headers: Record<string, string> = {
+                'Content-Type': 'application/json',
+            }
+            if (settingsPassword) {
+                headers['x-settings-password'] = settingsPassword
+            }
+
+            const response = await fetch('/api/settings-file', {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ updates }),
+            })
+            const data = await response.json()
+
+            if (!response.ok) {
+                throw new Error(data.error || '儲存失敗')
+            }
+
+            toast.success('設定已寫入,正在觸發伺服器重啟套用新設定...')
+
+            // 重用既有的 REST API 代理,呼叫官方的 shutdown 端點。
+            // 因為 docker-compose.yml 設定 restart: unless-stopped,
+            // 容器行程結束後 Docker 會自動重建容器,新的 ini 內容就會生效。
+            if (isConfigured) {
+                try {
+                    await apiCall('shutdown', 'POST', {
+                        waittime: 5,
+                        message: '設定更新,伺服器將在 5 秒後重啟',
+                    })
+                    toast.success(
+                        '已送出重啟指令,約需數十秒到 1 分鐘讓伺服器重新上線',
+                    )
+                } catch (restartError) {
+                    toast.warning(
+                        '設定已寫入,但呼叫重啟 API 失敗,請手動重啟伺服器讓新設定生效: ' +
+                            (restartError instanceof Error
+                                ? restartError.message
+                                : String(restartError)),
+                    )
+                }
+            } else {
+                toast.warning(
+                    '設定已寫入,但目前未連線,請手動重啟伺服器讓新設定生效',
+                )
+            }
+
+            await loadFields()
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : '儲存失敗')
+        } finally {
+            setIsSaving(false)
+        }
+    }
+
+    return (
+        <div className="mx-auto max-w-2xl p-6">
+            <h1 className="mb-1 text-xl font-semibold">Server Settings</h1>
+            <p className="mb-6 text-sm text-muted-foreground">
+                直接編輯 PalWorldSettings.ini
+                裡的遊戲倍率設定,儲存後會自動重啟伺服器套用。
+            </p>
+
+            {config && (
+                <p className="mb-4 text-xs text-muted-foreground">
+                    目前連線目標:{config.serverIp}:{config.restApiPort}
+                </p>
+            )}
+
+            {loadError && (
+                <div className="mb-4 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+                    {loadError}
+                </div>
+            )}
+
+            {isLoadingFields ? (
+                <p className="text-sm text-muted-foreground">讀取中...</p>
+            ) : (
+                <div className="space-y-4">
+                    {fields.map((field) => (
+                        <div
+                            key={field.key}
+                            className="flex items-center justify-between gap-4"
+                        >
+                            <label htmlFor={field.key} className="text-sm">
+                                {field.label}
+                                <span className="ml-1 text-xs text-muted-foreground">
+                                    ({field.key})
+                                </span>
+                            </label>
+
+                            {field.type === 'enum' ? (
+                                <select
+                                    id={field.key}
+                                    className="rounded-md border px-2 py-1 text-sm"
+                                    value={draft[field.key] ?? ''}
+                                    onChange={(e) =>
+                                        handleFieldChange(
+                                            field.key,
+                                            e.target.value,
+                                        )
+                                    }
+                                >
+                                    {field.options?.map((option) => (
+                                        <option key={option} value={option}>
+                                            {option}
+                                        </option>
+                                    ))}
+                                </select>
+                            ) : (
+                                <input
+                                    id={field.key}
+                                    type="text"
+                                    inputMode="decimal"
+                                    className="w-32 rounded-md border px-2 py-1 text-sm"
+                                    value={draft[field.key] ?? ''}
+                                    onChange={(e) =>
+                                        handleFieldChange(
+                                            field.key,
+                                            e.target.value,
+                                        )
+                                    }
+                                />
+                            )}
+                        </div>
+                    ))}
+
+                    <div className="pt-4">
+                        <label
+                            htmlFor="settings-password"
+                            className="mb-1 block text-sm"
+                        >
+                            設定編輯密碼(選配,伺服器若沒設定
+                            SETTINGS_EDITOR_PASSWORD 可留空)
+                        </label>
+                        <input
+                            id="settings-password"
+                            type="password"
+                            className="w-full rounded-md border px-2 py-1 text-sm"
+                            value={settingsPassword}
+                            onChange={(e) =>
+                                setSettingsPassword(e.target.value)
+                            }
+                        />
+                    </div>
+
+                    <button
+                        type="button"
+                        onClick={handleSave}
+                        disabled={isSaving}
+                        className="mt-4 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-50"
+                    >
+                        {isSaving ? '儲存中...' : '儲存並重啟套用'}
+                    </button>
+                </div>
+            )}
+        </div>
+    )
+}
+
+function formatFloatInput(rawValue: string): string {
+    const parsed = Number.parseFloat(rawValue)
+    if (Number.isNaN(parsed)) {
+        return rawValue
+    }
+    return parsed.toFixed(6)
+}

@@ -1,0 +1,68 @@
+# 完整一包:palworld 遊戲伺服器 + 這份 dashboard(含 Settings 頁面),一起用 docker compose 啟動。
+# - palworld service 完全沒改,直接吃官方 image
+# - dashboard service 是唯一被改的部分:用這個 repo 的原始碼 build,而不是拉發布好的 image
+#
+# 用法:
+#   git clone 這個 repo,在 repo 根目錄執行
+#   docker compose -f docker-compose.full.yml up -d --build
+#
+# 密碼一律從同層的 .env 檔讀(不會被 git 追蹤),照 .env.example 複製一份改成自己的值。
+#
+# 建議直接跑 ./scripts/deploy-full.sh,它會處理「先讓 image 生成一次真正的
+# ini(此時不能鎖),等伺服器 healthy 後再鎖住 ini 不被覆蓋」這個兩階段開機
+# 流程,並自動切換下面 DISABLE_GENERATE_SETTINGS 的值、只在需要時重建一次。
+# 手動操作或除錯時可以參考 README「Run Server and Dashboard Together」段落。
+
+services:
+  palworld:
+    image: thijsvanloef/palworld-server-docker:latest
+    restart: unless-stopped
+    container_name: palworld-server
+    stop_grace_period: 60s
+    ports:
+      - 8211:8211/udp
+    environment:
+      PORT: 8211
+      PLAYERS: 10
+      MULTITHREADING: true
+      RCON_ENABLED: true
+      REST_API_ENABLED: true
+      REST_API_PORT: 8212
+      SERVER_PASSWORD: "${PALWORLD_SERVER_PASSWORD}"
+      ADMIN_PASSWORD: "${PALWORLD_ADMIN_PASSWORD}"
+      SERVER_NAME: "foreverrain"
+      COMMUNITY: false
+      BACKUP_ENABLED: true
+      BACKUP_CRON_EXPRESSION: "0 */6 * * *"
+      DELETE_OLD_BACKUPS: true
+      OLD_BACKUP_DAYS: 7
+      AUTO_UPDATE_CRON_EXPRESSION: "0 4 * * *"
+      AUTO_REBOOT_CRON_EXPRESSION: "0 5 * * *"
+      AUTO_REBOOT_EVEN_IF_PLAYERS_ONLINE: false
+      EXP_RATE: 1.5
+      PAL_CAPTURE_RATE: 2.0
+      PAL_SPAWN_NUM_RATE: 1.0
+      PLAYER_STAMINA_DECREASE_RATE: 0.8
+      COLLECTION_DROP_RATE: 1.5
+      ENEMY_DROP_ITEM_RATE: 1.5
+      PAL_EGG_DEFAULT_HATCHING_TIME: 0.3
+      WORK_SPEED_RATE: 1.5
+      DEATH_PENALTY: "None"
+      # 由 scripts/deploy-full.sh 或 .env 控制,首次開機必須是 false(見上方說明)
+      DISABLE_GENERATE_SETTINGS: ${DISABLE_GENERATE_SETTINGS:-false}
+    volumes:
+      - ./data:/palworld/
+    cap_add:
+      - SYS_NICE
+
+  dashboard:
+    build: .   # 用這個 repo 的原始碼 build,不是拉 image
+    container_name: palworld-server-dashboard
+    restart: unless-stopped
+    ports:
+      - 3000:3000
+    volumes:
+      - ./data/Pal/Saved/Config/LinuxServer:/config:rw   # 跟 palworld 服務共用同一個 ./data,掛進 ini 檔所在資料夾
+    environment:
+      PALWORLD_INI_PATH: /config/PalWorldSettings.ini
+      SETTINGS_EDITOR_PASSWORD: "${SETTINGS_EDITOR_PASSWORD}"   # 唯一保護寫檔案這個動作的關卡

@@ -17,3 +17,7 @@ pnpm-debug.log*
 !.env.example
 public/readme
 
+# docker-compose.full.yml's palworld service data (world saves, downloaded
+# game binary) - lives next to the dashboard source but isn't part of it
+data/
+
