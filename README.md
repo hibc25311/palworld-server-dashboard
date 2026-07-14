@@ -41,9 +41,9 @@ Sensitive data in the dashboard screenshot below has been blurred.
 - [Features](#features-)
 - [How It Works](#how-it-works-)
 - [Requirements](#requirements-)
-- [Quick Start](#quick-start-)
 - [Docker Quick Start](#docker-quick-start-)
 - [First Connection Walkthrough](#first-connection-walkthrough-)
+- [Quick Start](#quick-start-)
 - [Available Scripts](#available-scripts-)
 - [Development Notes](#development-notes-)
 - [Production and Deployment](#production-and-deployment-)
@@ -177,25 +177,6 @@ Typical defaults used by the UI are:
 - `Game port`: `8211`
 
 The exact server-side setup depends on how your Palworld server is hosted. If you are using a hosted panel, Docker image, or custom server setup, check that provider's instructions for enabling the REST API.
-
-## Quick Start 🚀
-
-Clone the project, install dependencies, and start the development server:
-
-```bash
-git clone <your-fork-or-repo-url>
-cd palworld-server-dashboard
-npm install
-npm run dev
-```
-
-Then open:
-
-```text
-http://localhost:3000
-```
-
-If you are developing from another device on your local network, the dev server also exposes a network URL when started.
 
 ## Docker Quick Start 🐳
 
@@ -339,6 +320,25 @@ This is the password used to authenticate against the Palworld REST API.
 ### Remember Me
 
 If enabled, the app stores the connection details in browser local storage on that machine so you do not need to re-enter them every time.
+
+## Quick Start 🚀
+
+Clone the project, install dependencies, and start the development server:
+
+```bash
+git clone <your-fork-or-repo-url>
+cd palworld-server-dashboard
+npm install
+npm run dev
+```
+
+Then open:
+
+```text
+http://localhost:3000
+```
+
+If you are developing from another device on your local network, the dev server also exposes a network URL when started.
 
 ## Available Scripts 🛠️
 
