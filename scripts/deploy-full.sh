@@ -3,6 +3,12 @@
 # Handles the two-phase first boot: let the official image generate a real
 # PalWorldSettings.ini from env vars first, then lock the ini once the server
 # is healthy. Only recreates the server when the lock actually needs to happen.
+#
+# When to run this: fresh deploys, and after updating the dashboard code
+# (it rebuilds the image). Day-to-day you don't need it — containers restart
+# on their own (restart: unless-stopped), and a plain server restart is just
+# `docker compose -f docker-compose.full.yml restart palworld`.
+# Safe to re-run any time; it won't touch server settings once the ini is locked.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

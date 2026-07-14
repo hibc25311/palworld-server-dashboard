@@ -262,6 +262,15 @@ cp .env.example .env
 
 The first startup takes a while: the Palworld image downloads the dedicated server binary, and the dashboard is built from source. `deploy-full.sh` waits for the server to become healthy, then locks in `PalWorldSettings.ini` so the dashboard's Settings page can write to it without those changes getting overwritten on future restarts. Run it again any time (e.g. after a restart) — it's safe to re-run.
 
+Day-to-day you rarely need the script again:
+
+| Situation | What to do |
+|---|---|
+| Host machine reboots | Nothing — `restart: unless-stopped` brings both containers back automatically |
+| Restart just the game server | `docker compose -f docker-compose.full.yml restart palworld` (or use the dashboard) |
+| Updated the dashboard code | Re-run `./scripts/deploy-full.sh` — it rebuilds the image; the ini stays locked, so server settings are untouched |
+| Fresh deploy on a new machine | `./scripts/deploy-full.sh` — this is what it's for |
+
 <details>
 <summary>What the script does, if you want to run it by hand or it fails partway</summary>
 
