@@ -89,6 +89,31 @@ export default function SettingsPage() {
                 return
             }
 
+            // Palworld 伺服器行程關機的那一刻,會把它記憶體裡目前的設定值
+            // 回寫進 PalWorldSettings.ini——如果我們是「先寫新值、才叫它關機」,
+            // 關機那瞬間就會用記憶體裡的舊值把我們剛寫的新值蓋掉。
+            // 所以正確順序是:先關機、等它真的關閉,才能寫入新值。
+            if (isConfigured) {
+                try {
+                    const waittime = 5
+                    await apiCall('shutdown', 'POST', {
+                        waittime,
+                        message: `設定更新,伺服器將在 ${waittime} 秒後關閉套用新設定`,
+                    })
+                    toast.info('等待伺服器關閉...')
+                    await new Promise((resolve) =>
+                        setTimeout(resolve, (waittime + 5) * 1000),
+                    )
+                } catch (shutdownError) {
+                    toast.warning(
+                        '呼叫關機 API 失敗,將直接嘗試寫入設定——如果伺服器目前是開著的,這次修改可能會在下次關機時被蓋掉: ' +
+                            (shutdownError instanceof Error
+                                ? shutdownError.message
+                                : String(shutdownError)),
+                    )
+                }
+            }
+
             const headers: Record<string, string> = {
                 'Content-Type': 'application/json',
             }
@@ -107,33 +132,11 @@ export default function SettingsPage() {
                 throw new Error(data.error || '儲存失敗')
             }
 
-            toast.success('設定已寫入,正在觸發伺服器重啟套用新設定...')
-
-            // 重用既有的 REST API 代理,呼叫官方的 shutdown 端點。
-            // 因為 docker-compose.yml 設定 restart: unless-stopped,
-            // 容器行程結束後 Docker 會自動重建容器,新的 ini 內容就會生效。
-            if (isConfigured) {
-                try {
-                    await apiCall('shutdown', 'POST', {
-                        waittime: 5,
-                        message: '設定更新,伺服器將在 5 秒後重啟',
-                    })
-                    toast.success(
-                        '已送出重啟指令,約需數十秒到 1 分鐘讓伺服器重新上線',
-                    )
-                } catch (restartError) {
-                    toast.warning(
-                        '設定已寫入,但呼叫重啟 API 失敗,請手動重啟伺服器讓新設定生效: ' +
-                            (restartError instanceof Error
-                                ? restartError.message
-                                : String(restartError)),
-                    )
-                }
-            } else {
-                toast.warning(
-                    '設定已寫入,但目前未連線,請手動重啟伺服器讓新設定生效',
-                )
-            }
+            // docker-compose.yml 設定了 restart: unless-stopped,伺服器行程
+            // 結束後 Docker 會自動重建容器,讀到我們剛寫入的新 ini。
+            toast.success(
+                '設定已寫入,伺服器即將自動重新啟動套用新設定(約需數十秒到 1 分鐘)',
+            )
 
             await loadFields()
         } catch (error) {
