@@ -92,7 +92,13 @@ export default function SettingsPage() {
             // Palworld 伺服器行程關機的那一刻,會把它記憶體裡目前的設定值
             // 回寫進 PalWorldSettings.ini——如果我們是「先寫新值、才叫它關機」,
             // 關機那瞬間就會用記憶體裡的舊值把我們剛寫的新值蓋掉。
-            // 所以正確順序是:先關機、等它真的關閉,才能寫入新值。
+            // 所以正確順序是:先關機、輪詢確認真的斷線了,才能寫入新值。
+            // 用輪詢偵測「真的斷線」而不是固定秒數瞎等,是因為 docker 的
+            // restart: unless-stopped 會在行程死掉後自動重建 container,
+            // 這個重建時機不受我們控制,固定等待秒數容易猜錯(猜短了,
+            // 新行程可能已經把舊設定讀進記憶體,我們才寫入就晚了一步)。
+            // 輪詢把這個空檔壓到最短,但無法保證 100% 消除競爭——
+            // 真的要完全消除,只能靠手動 docker compose stop → 存檔 → start。
             if (isConfigured) {
                 try {
                     const waittime = 5
@@ -101,9 +107,29 @@ export default function SettingsPage() {
                         message: `設定更新,伺服器將在 ${waittime} 秒後關閉套用新設定`,
                     })
                     toast.info('等待伺服器關閉...')
-                    await new Promise((resolve) =>
-                        setTimeout(resolve, (waittime + 5) * 1000),
-                    )
+
+                    const pollIntervalMs = 1000
+                    const maxWaitMs = (waittime + 30) * 1000
+                    const startedAt = Date.now()
+                    let confirmedOffline = false
+
+                    while (Date.now() - startedAt < maxWaitMs) {
+                        await new Promise((resolve) =>
+                            setTimeout(resolve, pollIntervalMs),
+                        )
+                        try {
+                            await apiCall('metrics')
+                        } catch {
+                            confirmedOffline = true
+                            break
+                        }
+                    }
+
+                    if (!confirmedOffline) {
+                        toast.warning(
+                            '等待伺服器關閉逾時,仍會嘗試寫入設定,但可能被之後的重啟覆蓋',
+                        )
+                    }
                 } catch (shutdownError) {
                     toast.warning(
                         '呼叫關機 API 失敗,將直接嘗試寫入設定——如果伺服器目前是開著的,這次修改可能會在下次關機時被蓋掉: ' +

@@ -48,6 +48,8 @@ services:
       PAL_EGG_DEFAULT_HATCHING_TIME: 0.3
       WORK_SPEED_RATE: 1.5
       DEATH_PENALTY: "None"
+      # Engine.ini,所以不像 DISABLE_GENERATE_SETTINGS 那樣需要之後鎖住,固定開著就好。
+      DISABLE_GENERATE_ENGINE: false
       # 由 scripts/deploy-full.sh 或 .env 控制,首次開機必須是 false(見上方說明)
       DISABLE_GENERATE_SETTINGS: ${DISABLE_GENERATE_SETTINGS:-false}
     volumes:
