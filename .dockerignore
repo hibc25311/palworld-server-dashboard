@@ -18,6 +18,11 @@ pnpm-debug.log*
 public/readme
 
 # docker-compose.full.yml's palworld service data (world saves, downloaded
-# game binary) - lives next to the dashboard source but isn't part of it
-data/
+# game binary) - lives next to the dashboard source but isn't part of it.
+# Glob-match so stray copies (data.fresh-discarded, data.bak, recovery dumps,
+# save backups) can never leak multi-GB game files into the dashboard image.
+data
+data*/
+*-savegames/
+save-backups/
 
