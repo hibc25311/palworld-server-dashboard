@@ -19,6 +19,11 @@ services:
     restart: unless-stopped
     container_name: palworld-server
     stop_grace_period: 60s
+    # 用開機 hook 包住官方 image 的原始 entrypoint(/home/steam/server/init.sh):
+    # 每次容器啟動時,先讓 apply-pending.sh 把 dashboard 佇列的設定套進 ini,
+    # 再交棒給官方流程啟動 PalServer。這樣改設定不需要 docker socket、不需要
+    # 精準抓關機時序,徹底避開引擎回寫的競爭。詳見 palworld-hook/apply-pending.sh。
+    entrypoint: ["/bin/bash", "/opt/hooks/apply-pending.sh"]
     ports:
       - 8211:8211/udp
     environment:
@@ -54,6 +59,8 @@ services:
       DISABLE_GENERATE_SETTINGS: ${DISABLE_GENERATE_SETTINGS:-false}
     volumes:
       - ./data:/palworld/
+      # 開機 hook 腳本(唯讀掛入),被上面的 entrypoint 呼叫
+      - ./palworld-hook/apply-pending.sh:/opt/hooks/apply-pending.sh:ro
     cap_add:
       - SYS_NICE
 
