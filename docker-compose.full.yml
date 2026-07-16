@@ -7,6 +7,8 @@
 #   docker compose -f docker-compose.full.yml up -d --build
 #
 # 密碼一律從同層的 .env 檔讀(不會被 git 追蹤),照 .env.example 複製一份改成自己的值。
+# PALWORLD_ADMIN_PASSWORD 只在首次開機生成 ini 時使用; lock 後 REST API 密碼以
+# PalWorldSettings.ini 的 AdminPassword 為準,改 .env 不會更新已鎖的 ini。
 #
 # 建議直接跑 ./scripts/deploy-full.sh,它會處理「先讓 image 生成一次真正的
 # ini(此時不能鎖),等伺服器 healthy 後再鎖住 ini 不被覆蓋」這個兩階段開機

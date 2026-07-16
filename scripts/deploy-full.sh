@@ -73,4 +73,5 @@ fi
 
 echo ""
 echo "Done. Dashboard: http://localhost:3000"
-echo "Log in with Server IP 'palworld', REST API Port 8212, and the PALWORLD_ADMIN_PASSWORD from .env."
+echo "Log in with the AdminPassword in PalWorldSettings.ini (see data/Pal/Saved/Config/LinuxServer/)."
+echo "PALWORLD_ADMIN_PASSWORD in .env is only used for the initial ini generation — do not change it after lock."
