@@ -480,7 +480,8 @@ Some especially useful files:
 
 - `app/api/palworld/[...path]/route.ts` - proxy route to the Palworld REST API
 - `app/api/settings-file/route.ts` - reads and writes `PalWorldSettings.ini`
-- `app/settings/page.tsx` - Settings editor UI
+- `components/settings-editor.tsx` - Settings editor UI used inside the dashboard
+- `next.config.mjs` - Next.js config, including the old `/settings` redirect
 - `lib/server-context.tsx` - app-wide server/session state
 - `lib/palworld.ts` - Palworld API helpers and payload normalization
 - `lib/palworld-ini.ts` - `PalWorldSettings.ini` parsing and serialization

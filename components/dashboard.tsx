@@ -8,7 +8,7 @@ import { MobilePlayersSheet } from '@/components/mobile-players-sheet'
 import { ConsolePanel } from '@/components/console-panel'
 import { HUDCornerFrame } from '@/components/hud-corner-frame'
 import { LiveMap } from '@/components/live-map'
-import SettingsPage from '@/app/settings/page'
+import { SettingsEditor } from '@/components/settings-editor'
 import { InfoPanel, StatusBar } from '@/components/status-bar'
 import {
     ServerInfoCard,
@@ -308,7 +308,7 @@ export function Dashboard() {
                         key="settings-tab"
                         className="dashboard-tab-content dashboard-tab-content-animate mx-auto flex h-full w-full max-w-[1680px] flex-col gap-4 px-3 py-3 sm:px-4 lg:px-6 lg:py-4"
                     >
-                        <SettingsPage />
+                        <SettingsEditor />
                     </div>
                 )}
             </div>

@@ -8,7 +8,7 @@ import { SignalIndicator } from '@/components/signal-indicator'
 import { Terminal } from '@/components/terminal'
 import { UplinkHeader } from '@/components/uplink-header'
 
-const TRANSITION_DURATION_MS = 3200
+const TRANSITION_DURATION_MS = 1400
 
 interface LoginTransitionProps {
   serverLabel: string
@@ -142,6 +142,7 @@ export function LoginTransition({ serverLabel, onComplete }: LoginTransitionProp
                 title="GRID BOOTSTRAP"
                 lines={terminalLines}
                 variant="default"
+                typewriter={false}
                 className="min-h-[28rem]"
               />
             </div>

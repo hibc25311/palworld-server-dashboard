@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { useServer } from '@/lib/server-context'
 import { buildPalworldProxyHeaders } from '@/lib/palworld'
-import { RequireServerConfig } from '@/components/require-server-config'
 import type { EditableField } from '@/lib/palworld-ini'
 
 type FieldWithValue = EditableField & { value: string | null }
@@ -16,15 +15,7 @@ type FieldWithValue = EditableField & { value: string | null }
  * 你可以照現有的視覺風格,把下面的 <input>/<select>/<button> 換成
  * components/ui 底下對應的元件,功能邏輯(useState / handleSave)不用動。
  */
-export default function SettingsPage() {
-    return (
-        <RequireServerConfig>
-            <SettingsEditor />
-        </RequireServerConfig>
-    )
-}
-
-function SettingsEditor() {
+export function SettingsEditor() {
     const { config, isConfigured, apiCall } = useServer()
 
     const [fields, setFields] = useState<FieldWithValue[]>([])
