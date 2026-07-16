@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { ChevronDown } from 'lucide-react'
 import { toast } from 'sonner'
 import { useServer } from '@/lib/server-context'
 import { buildPalworldProxyHeaders } from '@/lib/palworld'
@@ -154,6 +155,34 @@ export function SettingsEditor() {
         }
     }
 
+    const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({})
+    const groupsInitialized = useRef(false)
+
+    useEffect(() => {
+        if (groupsInitialized.current || fields.length === 0) return
+        groupsInitialized.current = true
+        const groups = [...new Set(fields.map((field) => field.group))]
+        setOpenGroups(
+            Object.fromEntries(groups.map((group) => [group, group === groups[0]])),
+        )
+    }, [fields])
+
+    const toggleGroup = (group: string) => {
+        setOpenGroups((prev) => ({ ...prev, [group]: !prev[group] }))
+    }
+
+    const fieldGroups = fields.reduce<
+        Array<{ group: string; fields: FieldWithValue[] }>
+    >((acc, field) => {
+        const last = acc[acc.length - 1]
+        if (last?.group === field.group) {
+            last.fields.push(field)
+        } else {
+            acc.push({ group: field.group, fields: [field] })
+        }
+        return acc
+    }, [])
+
     return (
         <div className="mx-auto max-w-2xl p-6">
             <h1 className="mb-1 text-xl font-semibold">Server Settings</h1>
@@ -171,11 +200,6 @@ export function SettingsEditor() {
                     https://palworld-server-docker.loef.dev/getting-started/configuration/game-settings
                 </a>
             </p>
-            {config && (
-                <p className="mb-4 text-xs text-muted-foreground">
-                    目前連線目標:{config.serverIp}:{config.restApiPort}
-                </p>
-            )}
 
             {loadError && (
                 <div className="mb-4 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
@@ -186,76 +210,104 @@ export function SettingsEditor() {
             {isLoadingFields ? (
                 <p className="text-sm text-muted-foreground">讀取中...</p>
             ) : (
-                <div className="space-y-4">
-                    {fields.map((field, index) => (
-                        <div key={field.key}>
-                            {(index === 0 ||
-                                fields[index - 1].group !== field.group) && (
-                                <h2 className="mt-6 mb-2 border-b pb-1 text-m font-semibold uppercase tracking-wider text-muted-foreground first:mt-0">
-                                    {field.group}
-                                </h2>
-                            )}
-                            <div className="flex items-center justify-between gap-4 py-1">
-                                <label htmlFor={field.key} className="text-sm">
-                                    {field.label}
-                                    <span className="ml-1 text-xs text-muted-foreground">
-                                        ({field.key}, 預設 {field.default})
-                                    </span>
-                                </label>
+                <div className="space-y-2">
+                    {fieldGroups.map(({ group, fields: groupFields }) => (
+                        <div
+                            key={group}
+                            className="rounded-md border border-border/60 px-3 py-2"
+                        >
+                            <button
+                                type="button"
+                                onClick={() => toggleGroup(group)}
+                                aria-expanded={openGroups[group] ?? false}
+                                className="flex w-full cursor-pointer items-center gap-2 py-1 text-left text-sm font-semibold uppercase tracking-wider text-muted-foreground"
+                            >
+                                <ChevronDown
+                                    className={`size-4 shrink-0 transition-transform ${openGroups[group] ? 'rotate-180' : ''}`}
+                                />
+                                {group}
+                                <span className="text-xs font-normal normal-case tracking-normal">
+                                    ({groupFields.length})
+                                </span>
+                            </button>
+                            {openGroups[group] && (
+                                <div className="mt-2 space-y-1 border-t border-border/40 pt-2">
+                                {groupFields.map((field) => (
+                                    <div
+                                        key={field.key}
+                                        className="flex items-center justify-between gap-4 py-1"
+                                    >
+                                        <label
+                                            htmlFor={field.key}
+                                            className="text-sm"
+                                        >
+                                            {field.label}
+                                            <span className="ml-1 text-xs text-muted-foreground">
+                                                ({field.key}, 預設 {field.default})
+                                            </span>
+                                        </label>
 
-                                {field.type === 'enum' ? (
-                                    <select
-                                        id={field.key}
-                                        className="rounded-md border px-2 py-1 text-sm"
-                                        value={draft[field.key] ?? ''}
-                                        onChange={(e) =>
-                                            handleFieldChange(
-                                                field.key,
-                                                e.target.value,
-                                            )
-                                        }
-                                    >
-                                        {field.options?.map((option) => (
-                                            <option key={option} value={option}>
-                                                {option}
-                                            </option>
-                                        ))}
-                                    </select>
-                                ) : field.type === 'bool' ? (
-                                    <select
-                                        id={field.key}
-                                        className="rounded-md border px-2 py-1 text-sm"
-                                        value={draft[field.key] ?? 'False'}
-                                        onChange={(e) =>
-                                            handleFieldChange(
-                                                field.key,
-                                                e.target.value,
-                                            )
-                                        }
-                                    >
-                                        <option value="True">
-                                            開啟 (True)
-                                        </option>
-                                        <option value="False">
-                                            關閉 (False)
-                                        </option>
-                                    </select>
-                                ) : (
-                                    <input
-                                        id={field.key}
-                                        type="text"
-                                        inputMode="decimal"
-                                        className="w-32 rounded-md border px-2 py-1 text-sm"
-                                        value={draft[field.key] ?? ''}
-                                        onChange={(e) =>
-                                            handleFieldChange(
-                                                field.key,
-                                                e.target.value,
-                                            )
-                                        }
-                                    />
-                                )}
-                            </div>
+                                        {field.type === 'enum' ? (
+                                            <select
+                                                id={field.key}
+                                                className="rounded-md border px-2 py-1 text-sm"
+                                                value={draft[field.key] ?? ''}
+                                                onChange={(e) =>
+                                                    handleFieldChange(
+                                                        field.key,
+                                                        e.target.value,
+                                                    )
+                                                }
+                                            >
+                                                {field.options?.map((option) => (
+                                                    <option
+                                                        key={option}
+                                                        value={option}
+                                                    >
+                                                        {option}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        ) : field.type === 'bool' ? (
+                                            <select
+                                                id={field.key}
+                                                className="rounded-md border px-2 py-1 text-sm"
+                                                value={
+                                                    draft[field.key] ?? 'False'
+                                                }
+                                                onChange={(e) =>
+                                                    handleFieldChange(
+                                                        field.key,
+                                                        e.target.value,
+                                                    )
+                                                }
+                                            >
+                                                <option value="True">
+                                                    開啟 (True)
+                                                </option>
+                                                <option value="False">
+                                                    關閉 (False)
+                                                </option>
+                                            </select>
+                                        ) : (
+                                            <input
+                                                id={field.key}
+                                                type="text"
+                                                inputMode="decimal"
+                                                className="w-32 rounded-md border px-2 py-1 text-sm"
+                                                value={draft[field.key] ?? ''}
+                                                onChange={(e) =>
+                                                    handleFieldChange(
+                                                        field.key,
+                                                        e.target.value,
+                                                    )
+                                                }
+                                            />
+                                        )}
+                                    </div>
+                                ))}
+                                </div>
+                            )}
                         </div>
                     ))}
 
