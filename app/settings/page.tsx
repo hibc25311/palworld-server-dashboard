@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { useServer } from '@/lib/server-context'
+import { buildPalworldProxyHeaders } from '@/lib/palworld'
+import { RequireServerConfig } from '@/components/require-server-config'
 import type { EditableField } from '@/lib/palworld-ini'
 
 type FieldWithValue = EditableField & { value: string | null }
@@ -15,6 +17,14 @@ type FieldWithValue = EditableField & { value: string | null }
  * components/ui 底下對應的元件,功能邏輯(useState / handleSave)不用動。
  */
 export default function SettingsPage() {
+    return (
+        <RequireServerConfig>
+            <SettingsEditor />
+        </RequireServerConfig>
+    )
+}
+
+function SettingsEditor() {
     const { config, isConfigured, apiCall } = useServer()
 
     const [fields, setFields] = useState<FieldWithValue[]>([])
@@ -30,6 +40,7 @@ export default function SettingsPage() {
 
         try {
             const response = await fetch('/api/settings-file', {
+                headers: config ? buildPalworldProxyHeaders(config) : {},
                 cache: 'no-store',
             })
             const data = await response.json()
@@ -44,7 +55,11 @@ export default function SettingsPage() {
             const nextDraft: Record<string, string> = {}
             for (const field of loadedFields) {
                 if (field.value !== null) {
-                    nextDraft[field.key] = field.value
+                    // float 統一顯示成 2 位小數(ini 裡是 1.500000,顯示成 1.50)
+                    nextDraft[field.key] =
+                        field.type === 'float'
+                            ? formatFloatInput(field.value)
+                            : field.value
                 }
             }
             setDraft(nextDraft)
@@ -69,18 +84,19 @@ export default function SettingsPage() {
         setIsSaving(true)
 
         try {
-            // 只送出跟載入時不一樣的欄位,避免整批覆蓋
+            // 只送出跟載入時不一樣的欄位,避免整批覆蓋。
+            // float 兩邊都先正規化成 2 位小數再比,避免 1.50 vs 1.500000
+            // 這種「格式不同、數值相同」被誤判成有變更。
+            const normalize = (field: FieldWithValue, v: string) =>
+                field.type === 'float' ? formatFloatInput(v) : v
             const updates: Record<string, string> = {}
             for (const field of fields) {
                 const currentValue = draft[field.key]
-                if (
-                    currentValue !== undefined &&
-                    currentValue !== field.value
-                ) {
-                    updates[field.key] =
-                        field.type === 'float'
-                            ? formatFloatInput(currentValue)
-                            : currentValue
+                if (currentValue === undefined) continue
+                const newVal = normalize(field, currentValue)
+                const origVal = normalize(field, field.value ?? '')
+                if (newVal !== origVal) {
+                    updates[field.key] = newVal
                 }
             }
 
@@ -95,6 +111,9 @@ export default function SettingsPage() {
             //    因此不論關機/重啟的時序如何,設定都不會被引擎回寫蓋掉(競爭消失)。
             const headers: Record<string, string> = {
                 'Content-Type': 'application/json',
+            }
+            if (config) {
+                Object.assign(headers, buildPalworldProxyHeaders(config))
             }
             if (settingsPassword) {
                 headers['x-settings-password'] = settingsPassword
@@ -151,7 +170,16 @@ export default function SettingsPage() {
                 直接編輯 PalWorldSettings.ini
                 裡的遊戲倍率設定,儲存後會自動重啟伺服器套用。
             </p>
-
+            <p className="mb-6 text-sm text-muted-foreground">
+                <a
+                    className="text-primary"
+                    href="https://palworld-server-docker.loef.dev/getting-started/configuration/game-settings"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                >
+                    https://palworld-server-docker.loef.dev/getting-started/configuration/game-settings
+                </a>
+            </p>
             {config && (
                 <p className="mb-4 text-xs text-muted-foreground">
                     目前連線目標:{config.serverIp}:{config.restApiPort}
@@ -168,51 +196,75 @@ export default function SettingsPage() {
                 <p className="text-sm text-muted-foreground">讀取中...</p>
             ) : (
                 <div className="space-y-4">
-                    {fields.map((field) => (
-                        <div
-                            key={field.key}
-                            className="flex items-center justify-between gap-4"
-                        >
-                            <label htmlFor={field.key} className="text-sm">
-                                {field.label}
-                                <span className="ml-1 text-xs text-muted-foreground">
-                                    ({field.key})
-                                </span>
-                            </label>
-
-                            {field.type === 'enum' ? (
-                                <select
-                                    id={field.key}
-                                    className="rounded-md border px-2 py-1 text-sm"
-                                    value={draft[field.key] ?? ''}
-                                    onChange={(e) =>
-                                        handleFieldChange(
-                                            field.key,
-                                            e.target.value,
-                                        )
-                                    }
-                                >
-                                    {field.options?.map((option) => (
-                                        <option key={option} value={option}>
-                                            {option}
-                                        </option>
-                                    ))}
-                                </select>
-                            ) : (
-                                <input
-                                    id={field.key}
-                                    type="text"
-                                    inputMode="decimal"
-                                    className="w-32 rounded-md border px-2 py-1 text-sm"
-                                    value={draft[field.key] ?? ''}
-                                    onChange={(e) =>
-                                        handleFieldChange(
-                                            field.key,
-                                            e.target.value,
-                                        )
-                                    }
-                                />
+                    {fields.map((field, index) => (
+                        <div key={field.key}>
+                            {(index === 0 ||
+                                fields[index - 1].group !== field.group) && (
+                                <h2 className="mt-6 mb-2 border-b pb-1 text-m font-semibold uppercase tracking-wider text-muted-foreground first:mt-0">
+                                    {field.group}
+                                </h2>
                             )}
+                            <div className="flex items-center justify-between gap-4 py-1">
+                                <label htmlFor={field.key} className="text-sm">
+                                    {field.label}
+                                    <span className="ml-1 text-xs text-muted-foreground">
+                                        ({field.key}, 預設 {field.default})
+                                    </span>
+                                </label>
+
+                                {field.type === 'enum' ? (
+                                    <select
+                                        id={field.key}
+                                        className="rounded-md border px-2 py-1 text-sm"
+                                        value={draft[field.key] ?? ''}
+                                        onChange={(e) =>
+                                            handleFieldChange(
+                                                field.key,
+                                                e.target.value,
+                                            )
+                                        }
+                                    >
+                                        {field.options?.map((option) => (
+                                            <option key={option} value={option}>
+                                                {option}
+                                            </option>
+                                        ))}
+                                    </select>
+                                ) : field.type === 'bool' ? (
+                                    <select
+                                        id={field.key}
+                                        className="rounded-md border px-2 py-1 text-sm"
+                                        value={draft[field.key] ?? 'False'}
+                                        onChange={(e) =>
+                                            handleFieldChange(
+                                                field.key,
+                                                e.target.value,
+                                            )
+                                        }
+                                    >
+                                        <option value="True">
+                                            開啟 (True)
+                                        </option>
+                                        <option value="False">
+                                            關閉 (False)
+                                        </option>
+                                    </select>
+                                ) : (
+                                    <input
+                                        id={field.key}
+                                        type="text"
+                                        inputMode="decimal"
+                                        className="w-32 rounded-md border px-2 py-1 text-sm"
+                                        value={draft[field.key] ?? ''}
+                                        onChange={(e) =>
+                                            handleFieldChange(
+                                                field.key,
+                                                e.target.value,
+                                            )
+                                        }
+                                    />
+                                )}
+                            </div>
                         </div>
                     ))}
 
@@ -254,5 +306,5 @@ function formatFloatInput(rawValue: string): string {
     if (Number.isNaN(parsed)) {
         return rawValue
     }
-    return parsed.toFixed(6)
+    return parsed.toFixed(2)
 }

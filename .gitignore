@@ -35,3 +35,4 @@ coverage/
 # Local tooling / docker-compose.full.yml runtime data
 .claude/
 data/
+.local-test/

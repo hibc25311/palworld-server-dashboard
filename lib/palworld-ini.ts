@@ -29,12 +29,16 @@ export interface PalworldSettingsMap {
 
 /**
  * 把 OptionSettings=(...) 括號裡的內容,依逗號切開成一個個 Key=Value片段。
- * 必須考慮雙引號內的逗號不能被當成分隔符(例如 ServerDescription="Hi, there")。
+ * 分隔用的逗號不能出現在:
+ *  - 雙引號內(例如 ServerDescription="Hi, there")
+ *  - 巢狀括號內(例如 CrossplayPlatforms=(Steam,Xbox,PS5)——這整組是一個值)
+ * 兩者都要略過,否則會把單一欄位拆成多段、re-serialize 時寫壞檔案。
  */
 function splitOptionSettings(inner: string): string[] {
     const parts: string[] = []
     let current = ''
     let inQuotes = false
+    let depth = 0
 
     for (let i = 0; i < inner.length; i++) {
         const ch = inner[i]
@@ -45,10 +49,16 @@ function splitOptionSettings(inner: string): string[] {
             continue
         }
 
-        if (ch === ',' && !inQuotes) {
-            parts.push(current)
-            current = ''
-            continue
+        if (!inQuotes) {
+            if (ch === '(') {
+                depth++
+            } else if (ch === ')') {
+                depth--
+            } else if (ch === ',' && depth === 0) {
+                parts.push(current)
+                current = ''
+                continue
+            }
         }
 
         current += ch
@@ -103,7 +113,7 @@ export function serializePalworldSettingsIni(
 
 /** 數值型欄位存回檔案時,沿用遊戲原本的固定小數格式,避免格式不一致造成解析問題 */
 export function formatFloatValue(value: number): string {
-    return value.toFixed(6)
+    return value.toFixed(2)
 }
 
 export function formatBoolValue(value: boolean): string {
@@ -117,42 +127,287 @@ export interface EditableField {
     key: string
     label: string
     type: EditableFieldType
+    /** UI 分組標題(倍率 / 傷害 / 生存 …),同組欄位排在一起顯示 */
+    group: string
+    /** 官方預設值,顯示在欄位旁當參考(不是目前值) */
+    default: string
     options?: string[]
     description?: string
 }
 
 /**
- * 開放可編輯的欄位白名單。刻意只列出遊戲倍率/難度相關項目,
- * 不開放 ServerName / 密碼 / port 這些欄位——那些已經由 docker-compose.yml
- * 的環境變數管理,兩邊同時管會互相覆蓋、造成混亂。
+ * 開放可編輯的欄位白名單。刻意只列出遊戲玩法相關項目,
+ * 不開放 ServerName / 密碼 / port / RCON / BanList 這些欄位——那些已經由
+ * docker-compose.full.yml 的環境變數 / .env 管理,兩邊同時管會互相覆蓋、造成混亂。
+ * key 必須完全對應 ini 裡的實際欄位名(含官方拼字錯誤,例如 Decreace,別「修正」)。
  */
 export const EDITABLE_FIELDS: EditableField[] = [
-    { key: 'ExpRate', label: '經驗值倍率', type: 'float' },
-    { key: 'PalCaptureRate', label: '帕魯捕獲率', type: 'float' },
-    { key: 'PalSpawnNumRate', label: '帕魯出現數量倍率', type: 'float' },
-    { key: 'WorkSpeedRate', label: '工作速度倍率', type: 'float' },
-    { key: 'CollectionDropRate', label: '採集掉落倍率', type: 'float' },
-    { key: 'EnemyDropItemRate', label: '打怪掉落倍率', type: 'float' },
+    // 倍率(核心)
     {
+        group: '倍率',
+        key: 'ExpRate',
+        label: '經驗值倍率',
+        type: 'float',
+        default: '1.00',
+    },
+    {
+        group: '倍率',
+        key: 'PalCaptureRate',
+        label: '帕魯捕獲率',
+        type: 'float',
+        default: '1.00',
+    },
+    {
+        group: '倍率',
+        key: 'PalSpawnNumRate',
+        label: '帕魯出現數量倍率',
+        type: 'float',
+        default: '1.00',
+    },
+    {
+        group: '倍率',
+        key: 'WorkSpeedRate',
+        label: '工作速度倍率',
+        type: 'float',
+        default: '1.00',
+    },
+    {
+        group: '倍率',
+        key: 'CollectionDropRate',
+        label: '採集掉落倍率',
+        type: 'float',
+        default: '1.00',
+    },
+    {
+        group: '倍率',
+        key: 'EnemyDropItemRate',
+        label: '打怪掉落倍率',
+        type: 'float',
+        default: '1.00',
+    },
+    {
+        group: '倍率',
         key: 'PalEggDefaultHatchingTime',
         label: '孵蛋時間(小時)',
         type: 'float',
+        default: '1.00',
+    },
+
+    // 時間流速
+    {
+        group: '時間',
+        key: 'DayTimeSpeedRate',
+        label: '白天時間流速',
+        type: 'float',
+        default: '1.00',
     },
     {
+        group: '時間',
+        key: 'NightTimeSpeedRate',
+        label: '夜晚時間流速',
+        type: 'float',
+        default: '1.00',
+    },
+
+    // 傷害倍率
+    {
+        group: '傷害',
+        key: 'PalDamageRateAttack',
+        label: '帕魯攻擊倍率',
+        type: 'float',
+        default: '1.00',
+    },
+    {
+        group: '傷害',
+        key: 'PalDamageRateDefense',
+        label: '帕魯受傷倍率',
+        type: 'float',
+        default: '1.00',
+    },
+    {
+        group: '傷害',
+        key: 'PlayerDamageRateAttack',
+        label: '玩家攻擊倍率',
+        type: 'float',
+        default: '1.00',
+    },
+    {
+        group: '傷害',
+        key: 'PlayerDamageRateDefense',
+        label: '玩家受傷倍率',
+        type: 'float',
+        default: '1.00',
+    },
+
+    // 生存
+    {
+        group: '生存',
         key: 'PlayerStaminaDecreaceRate',
         label: '玩家體力消耗倍率',
         type: 'float',
+        default: '1.00',
     },
     {
+        group: '生存',
         key: 'PlayerStomachDecreaceRate',
         label: '玩家肚子餓速度倍率',
         type: 'float',
+        default: '1.00',
     },
     {
-        key: 'DeathPenalty',
-        label: '死亡懲罰',
-        type: 'enum',
-        options: ['None', 'Item', 'ItemAndEquipment', 'All'],
+        group: '生存',
+        key: 'PlayerAutoHPRegeneRate',
+        label: '玩家自動回血倍率',
+        type: 'float',
+        default: '1.00',
+    },
+    {
+        group: '生存',
+        key: 'PlayerAutoHpRegeneRateInSleep',
+        label: '玩家睡眠回血倍率',
+        type: 'float',
+        default: '1.00',
+    },
+    {
+        group: '生存',
+        key: 'PalStomachDecreaceRate',
+        label: '帕魯肚子餓速度倍率',
+        type: 'float',
+        default: '1.00',
+    },
+    {
+        group: '生存',
+        key: 'PalStaminaDecreaceRate',
+        label: '帕魯體力消耗倍率',
+        type: 'float',
+        default: '1.00',
+    },
+    {
+        group: '生存',
+        key: 'PalAutoHPRegeneRate',
+        label: '帕魯自動回血倍率',
+        type: 'float',
+        default: '1.00',
+    },
+    {
+        group: '生存',
+        key: 'PalAutoHpRegeneRateInSleep',
+        label: '帕魯睡眠回血倍率',
+        type: 'float',
+        default: '1.00',
+    },
+    {
+        group: '生存',
+        key: 'ItemWeightRate',
+        label: '物品重量倍率',
+        type: 'float',
+        default: '1.00',
+    },
+    {
+        group: '生存',
+        key: 'DropItemAliveMaxHours',
+        label: '掉落物存在時數',
+        type: 'float',
+        default: '1.00',
+    },
+
+    // 裝備/物品
+    {
+        group: '裝備/物品',
+        key: 'EquipmentDurabilityDamageRate',
+        label: '裝備耐久消耗倍率',
+        type: 'float',
+        default: '1.00',
+    },
+    {
+        group: '裝備/物品',
+        key: 'ItemCorruptionMultiplier',
+        label: '物品腐敗速度倍率',
+        type: 'float',
+        default: '1.00',
+    },
+
+    // 牧場
+    {
+        group: '牧場',
+        key: 'MonsterFarmActionSpeedRate',
+        label: '牧場工作速度倍率',
+        type: 'float',
+        default: '1.00',
+    },
+
+    // 建築/採集
+    {
+        group: '建築/採集',
+        key: 'BuildObjectHpRate',
+        label: '建築耐久倍率',
+        type: 'float',
+        default: '1.00',
+    },
+    {
+        group: '建築/採集',
+        key: 'BuildObjectDeteriorationDamageRate',
+        label: '建築劣化速度倍率',
+        type: 'float',
+        default: '1.00',
+    },
+    {
+        group: '建築/採集',
+        key: 'CollectionObjectRespawnSpeedRate',
+        label: '採集物重生速度倍率',
+        type: 'float',
+        default: '1.00',
+    },
+    {
+        group: '建築/採集',
+        key: 'bBuildAreaLimit',
+        label: '建築區域限制',
+        type: 'bool',
+        default: 'False',
+    },
+
+    // 容量上限(整數)
+    {
+        group: '容量上限',
+        key: 'BaseCampMaxNum',
+        label: '據點數量上限',
+        type: 'int',
+        default: '128',
+    },
+    {
+        group: '容量上限',
+        key: 'BaseCampWorkerMaxNum',
+        label: '據點工人上限',
+        type: 'int',
+        default: '15',
+    },
+    {
+        group: '容量上限',
+        key: 'BaseCampMaxNumInGuild',
+        label: '公會據點上限',
+        type: 'int',
+        default: '4',
+    },
+    {
+        group: '容量上限',
+        key: 'GuildPlayerMaxNum',
+        label: '公會人數上限',
+        type: 'int',
+        default: '20',
+    },
+    {
+        group: '容量上限',
+        key: 'DropItemMaxNum',
+        label: '地上掉落物上限',
+        type: 'int',
+        default: '3000',
+    },
+    {
+        group: '容量上限',
+        key: 'MaxBuildingLimitNum',
+        label: '單據點建築上限(0=無限)',
+        type: 'int',
+        default: '0',
     },
 ]
 

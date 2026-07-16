@@ -1,6 +1,8 @@
+import { Buffer } from 'node:buffer'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { NextRequest, NextResponse } from 'next/server'
+import { PALWORLD_PROXY_HEADERS } from '@/lib/palworld'
 import {
     EDITABLE_FIELDS,
     getEditableFieldsWithValues,
@@ -27,18 +29,129 @@ const EDITABLE_FIELD_MAP = new Map(EDITABLE_FIELDS.map((f) => [f.key, f]))
 function isValidValue(key: string, value: string): boolean {
     const field = EDITABLE_FIELD_MAP.get(key)
     if (!field) return false
-    if (field.type === 'enum') {
-        return (field.options ?? []).includes(value)
+    switch (field.type) {
+        case 'enum':
+            return (field.options ?? []).includes(value)
+        case 'bool':
+            return value === 'True' || value === 'False'
+        case 'int':
+            return /^-?\d+$/.test(value)
+        case 'float':
+            return /^-?\d+(\.\d+)?$/.test(value)
+        default:
+            return false
     }
-    // float / int:只允許數字(可含小數點與負號)
-    return /^-?\d+(\.\d+)?$/.test(value)
 }
 
-// 選配的第二道密碼:就算 dashboard 主密碼外洩,寫入設定這個動作還多一層防護
-// 沒有設定這個環境變數的話,就不會要求(等於只靠 dashboard 本身的登入)
+// 選配的第二道密碼:就算 PalServer admin password 外洩,
+// 寫入設定這個動作還能多一層防護。沒有設定這個環境變數的話,
+// 讀寫 settings-file API 仍然必須先通過 PalServer REST API 驗證。
 const SETTINGS_EDITOR_PASSWORD = process.env.SETTINGS_EDITOR_PASSWORD || ''
 
-export async function GET() {
+function parsePort(value: string) {
+    if (!/^\d+$/.test(value)) {
+        return null
+    }
+
+    const port = Number.parseInt(value, 10)
+
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        return null
+    }
+
+    return port
+}
+
+function buildUpstreamBaseUrl(serverIp: string, serverPort: number) {
+    const normalizedHost = serverIp.trim()
+
+    if (!normalizedHost) {
+        return null
+    }
+
+    try {
+        const baseUrl = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(
+            normalizedHost,
+        )
+            ? new URL(normalizedHost)
+            : new URL(`http://${normalizedHost}`)
+
+        baseUrl.port = serverPort.toString()
+        baseUrl.pathname = '/'
+        baseUrl.search = ''
+        baseUrl.hash = ''
+
+        return baseUrl
+    } catch {
+        return null
+    }
+}
+
+async function validatePalserverAdmin(request: NextRequest) {
+    const serverIp = request.headers.get(PALWORLD_PROXY_HEADERS.serverIp) ?? ''
+    const serverPort = parsePort(
+        request.headers.get(PALWORLD_PROXY_HEADERS.serverPort)?.trim() ?? '',
+    )
+    const adminPassword =
+        request.headers.get(PALWORLD_PROXY_HEADERS.adminPassword) ?? ''
+
+    if (!serverIp.trim() || serverPort == null || !adminPassword) {
+        return NextResponse.json(
+            { error: '請先用 PalServer URL 和 Admin Password 登入' },
+            { status: 401 },
+        )
+    }
+
+    const upstreamBaseUrl = buildUpstreamBaseUrl(serverIp, serverPort)
+    if (!upstreamBaseUrl) {
+        return NextResponse.json(
+            { error: 'PalServer URL 或 REST API port 格式不正確' },
+            { status: 400 },
+        )
+    }
+
+    const infoUrl = new URL('/v1/api/info', upstreamBaseUrl)
+
+    try {
+        const response = await fetch(infoUrl, {
+            method: 'GET',
+            headers: {
+                Accept: 'application/json',
+                Authorization: `Basic ${Buffer.from(
+                    `admin:${adminPassword}`,
+                ).toString('base64')}`,
+            },
+            cache: 'no-store',
+            signal: AbortSignal.timeout(5_000),
+        })
+
+        if (!response.ok) {
+            return NextResponse.json(
+                { error: 'PalServer 驗證失敗,請確認 Admin Password' },
+                { status: 401 },
+            )
+        }
+    } catch (error) {
+        return NextResponse.json(
+            {
+                error:
+                    error instanceof Error
+                        ? `無法連線到 PalServer 驗證身份: ${error.message}`
+                        : '無法連線到 PalServer 驗證身份',
+            },
+            { status: 502 },
+        )
+    }
+
+    return null
+}
+
+export async function GET(request: NextRequest) {
+    const authError = await validatePalserverAdmin(request)
+    if (authError) {
+        return authError
+    }
+
     try {
         const content = await fs.readFile(INI_PATH, 'utf-8')
         const parsed = parsePalworldSettingsIni(content)
@@ -59,6 +172,11 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+    const authError = await validatePalserverAdmin(request)
+    if (authError) {
+        return authError
+    }
+
     if (SETTINGS_EDITOR_PASSWORD) {
         const providedPassword =
             request.headers.get('x-settings-password') ?? ''
@@ -132,6 +250,11 @@ export async function POST(request: NextRequest) {
     }
 
     for (const [key, value] of Object.entries(updates)) {
+        // 若這個欄位原本不在 ini 裡(不同遊戲版本欄位有增減),補進 order,
+        // 否則 serialize 只會輸出 order 裡的 key,新欄位會被靜默丟掉
+        if (!(key in parsed.values)) {
+            parsed.order.push(key)
+        }
         parsed.values[key] = value
     }
 
